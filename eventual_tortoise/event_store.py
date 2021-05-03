@@ -1,38 +1,32 @@
-import asyncio
 from contextlib import asynccontextmanager
 import datetime as dt
 import uuid
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, List
 
 from eventual import util
 from eventual.dispatch.abc import (
     EventStore,
     EventBody,
-    Message,
     Guarantee,
 )
-from eventual.model import Entity
 
 from .relation import (
     EventOutRelation,
     HandledEventRelation,
     DispatchedEventRelation,
 )
-from .work_unit import create_work_unit
+from .work_unit import create_work_unit, TortoiseWorkUnit
 
 
-class RelationalEventStore(EventStore):
+class RelationalEventStore(EventStore[TortoiseWorkUnit]):
     @asynccontextmanager
-    async def clear_outbox_atomically(
-            self, *entity_seq: Entity
-    ) -> AsyncGenerator[None, None]:
-        async with create_work_unit():
-            yield None
-            await self.clear_outbox(entity_seq)
+    def create_work_unit(self) -> AsyncGenerator[TortoiseWorkUnit, None]:
+        return create_work_unit()
 
-    async def schedule_event_out(
-            self, event_id: uuid.UUID, body: EventBody, send_after: Optional[dt.datetime] = None
-    ):
+    async def _write_event_to_send_soon(
+        self, body: EventBody, send_after: Optional[dt.datetime] = None
+    ) -> None:
+        event_id = body["id"]
         await EventOutRelation.create(
             event_id=event_id, body=body, send_after=send_after
         )
@@ -42,7 +36,7 @@ class RelationalEventStore(EventStore):
         return event_count > 0
 
     async def mark_event_handled(
-            self, event_body: EventBody, guarantee: Guarantee
+        self, event_body: EventBody, guarantee: Guarantee
     ) -> uuid.UUID:
         event_id = event_body["id"]
         await HandledEventRelation.create(
@@ -55,45 +49,16 @@ class RelationalEventStore(EventStore):
         await DispatchedEventRelation.create(body=event_body, event_id=event_id)
         return event_id
 
-    @asynccontextmanager
-    async def handle_exactly_once(
-            self, message: Message
-    ) -> AsyncGenerator[EventBody, None]:
-        async with create_work_unit():
-            yield message.body
-            await self.mark_event_handled(
-                message.body, guarantee=Guarantee.EXACTLY_ONCE
-            )
-        message.acknowledge()
+    async def _not_confirmed_event_body_seq(
+        self,
+    ) -> List[EventBody]:
+        event_seq = await EventOutRelation.filter(
+            confirmed=False, send_after__lt=util.tz_aware_utcnow()
+        ).order_by("created_at")
 
-    @asynccontextmanager
-    async def handle_no_more_than_once(
-            self, message: Message
-    ) -> AsyncGenerator[EventBody, None]:
-        await self.mark_event_handled(
-            message.body, guarantee=Guarantee.NO_MORE_THAN_ONCE
-        )
-        message.acknowledge()
-        yield message.body
+        return [event.body for event in event_seq]
 
-    @asynccontextmanager
-    async def handle_at_least_once(
-            self, message: Message
-    ) -> AsyncGenerator[EventBody, None]:
-        yield message.body
-        await self.mark_event_handled(
-            message.body, guarantee=Guarantee.AT_LEAST_ONCE
-        )
-        message.acknowledge()
-
-    async def event_body_stream(self) -> AsyncGenerator[EventBody, None]:
-        while True:
-            event_seq = await EventOutRelation.filter(
-                confirmed=False, send_after__lt=util.tz_aware_utcnow()
-            ).order_by("created_at")
-
-            for event in event_seq:
-                yield event.body
-                event.confirmed = True
-                await event.save()
-            await asyncio.sleep(1)
+    async def _confirm_event(self, event_id: uuid.UUID) -> None:
+        event = await HandledEventRelation.filter(id=event_id).get()
+        event.confirmed = True
+        await event.save()

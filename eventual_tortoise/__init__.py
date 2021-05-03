@@ -1,1 +1,1 @@
-__version__ = '0.1.0'
+from .event_store import RelationalEventStore
