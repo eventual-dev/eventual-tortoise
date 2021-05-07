@@ -34,8 +34,8 @@ class EventOutRelation(Model, mixin.Timestamp):
 
 
 class DispatchedEventRelation(Model, mixin.Timestamp):
-    body = fields.JSONField(encoder=_dump_str, decoder=orjson.loads)
     event_id = fields.UUIDField()
+    body = fields.JSONField(encoder=_dump_str, decoder=orjson.loads)
 
     class Meta:
         table = "dispatched_event"
