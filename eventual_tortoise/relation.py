@@ -1,10 +1,10 @@
-from typing import Dict, Any
+import datetime as dt
+from typing import Any, Dict, cast
 
 import orjson
-from tortoise import fields, Model
+from eventual.event_store import Guarantee
+from tortoise import Model, fields
 from tortoise.indexes import Index
-
-from eventual.dispatch.abc import Guarantee
 
 from . import mixin
 
@@ -23,8 +23,9 @@ def _dump_str(mapping: Dict[str, Any]) -> str:
 class EventOutRelation(Model, mixin.Timestamp):
     event_id = fields.UUIDField()
     body = fields.JSONField(encoder=_dump_str, decoder=orjson.loads)
-    confirmed = fields.BooleanField(default=False)
     send_after = fields.DatetimeField(index=True, null=True, default=None)
+    scheduled_at: dt.datetime = cast(dt.datetime, fields.DatetimeField(index=True))
+    confirmed_sent: bool = cast(bool, fields.BooleanField(default=False))
 
     class Meta:
         table = "event_out"

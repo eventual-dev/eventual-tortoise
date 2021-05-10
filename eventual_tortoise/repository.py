@@ -1,19 +1,18 @@
 import abc
 import uuid
-from typing import TypeVar, Iterable, Optional, Type, Generic
+from typing import Generic, Iterable, Optional, Type, TypeVar
 
+from eventual.model import Entity
 from eventual.repository import (
     RepositoryAllMixin,
     RepositoryCountMixin,
-    RepositoryGetMixin,
     RepositoryCreateMixin,
-    RepositoryUpdateMixin,
     RepositoryDeleteMixin,
+    RepositoryGetMixin,
+    RepositoryUpdateMixin,
 )
-from eventual.model import Entity
 
 from .relation import PkUuidModel
-
 
 M = TypeVar("M", bound=Entity)
 R = TypeVar("R", bound=PkUuidModel)
